@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from core.security import create_access_token, decode_access_token, verify_password
 from models.user import User
-from schemas.user import LoginRequest, TokenResponse, UserResponse
+from schemas.user import TokenResponse, UserResponse
 
 router = APIRouter()
 
@@ -17,10 +17,6 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """
-    Зависимость — извлекает текущего пользователя из JWT-токена.
-    Используется во всех защищённых эндпоинтах через Depends(get_current_user).
-    """
     user_id = decode_access_token(token)
     if user_id is None:
         raise HTTPException(
@@ -41,11 +37,14 @@ async def get_current_user(
 
 
 @router.post("/auth/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(body.password, user.password_hash):
+    if user is None or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",

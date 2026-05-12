@@ -38,34 +38,45 @@
 - POST /auth/login → 200, JWT токен — ПРОВЕРЕНО
 - GET /users/me → 200, данные пользователя — ПРОВЕРЕНО
 
-## Структура проекта (актуально)
-project/
-├── docker-compose.yml
-├── .env
-├── .env.example
-├── .gitignore
-├── progress.md
-└── backend/
-    ├── Dockerfile
-    ├── requirements.txt
-    ├── main.py
-    ├── core/
-    │   ├── __init__.py
-    │   ├── config.py
-    │   ├── database.py
-    │   └── security.py
-    ├── models/
-    │   ├── __init__.py
-    │   └── user.py
-    ├── schemas/
-    │   ├── __init__.py
-    │   └── user.py
-    ├── routers/
-    │   ├── __init__.py
-    │   └── auth.py
-    └── db/
-        └── init/
-            └── 01_schema.sql
-
 ## Следующий шаг
 - [ ] Модуль справочников: виды работ, причины дефектов, подрядчики, объекты
+
+## Модуль справочников — ГОТОВО
+- backend/models/: WorkType, DefectCause, Contractor, ConstructionObject
+- backend/schemas/catalogs.py — Pydantic-схемы (Create/Update/Response для каждой сущности)
+- backend/routers/catalogs.py — 16 эндпоинтов (GET/POST/PATCH/DELETE для 4 справочников)
+- backend/core/dependencies.py — зависимость require_admin
+- Права: чтение — все авторизованные, запись — только admin
+- GET поддерживает ?active_only=false для показа деактивированных записей
+- DELETE — мягкое удаление (is_active = False), данные не теряются
+- auth.py переведён на OAuth2PasswordRequestForm — кнопка Authorize в Swagger работает корректно
+
+## Модуль замечаний — ГОТОВО
+- backend/models/issue.py — ORM-модели Issue, IssueStatusHistory
+- backend/models/location.py — ORM-модель Location (нужна для FK)
+- backend/schemas/issue.py — схемы Create/Update/Response/StatusTransition
+- backend/routers/issues.py — 6 эндпоинтов: список, карточка, создание, редактирование, смена статуса, история
+- Машина состояний: словарь TRANSITIONS, проверка на сервере
+- Прораб видит только замечания своего подрядчика
+- Редактирование заблокировано после выхода из статуса created (кроме admin)
+- При rework комментарий обязателен
+- Нумерация замечаний: ФАС-XXXX автоматически по объекту
+
+## Модуль вложений — ГОТОВО
+- backend/models/attachment.py — ORM-модель Attachment
+- backend/schemas/attachment.py — схемы AttachmentResponse, AttachmentDownloadResponse
+- backend/core/storage.py — клиент MinIO (boto3): upload, presigned URL, delete, ensure_bucket
+- backend/routers/attachments.py — 4 эндпоинта: загрузка, список, скачивание (presigned URL), удаление
+- Разрешённые типы: JPEG, PNG, WebP, HEIC, PDF, MP4, MOV
+- Максимальный размер файла: 50 МБ
+- Путь в MinIO: issues/{issue_id}/{uuid}.{ext}
+- Удалить может только автор загрузки или admin
+
+## Модуль аналитики — ГОТОВО
+- backend/schemas/analytics.py — схемы для всех 6 эндпоинтов
+- backend/routers/analytics.py — GET /analytics/summary, by-status, by-work-type, by-contractor, overdue, timeline
+- Доступ закрыт для роли foreman
+- summary: подсчёт по статусам одним запросом (CASE WHEN), среднее время закрытия
+- by-work-type и by-contractor: LEFT JOIN, агрегаты
+- overdue: фильтр по planned_finish_at < today и статус не closed/rejected
+- timeline: группировка по ISO-неделям (to_char + IYYY-IW), параметр weeks (1-52)
