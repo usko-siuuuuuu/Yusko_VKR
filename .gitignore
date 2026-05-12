@@ -1,0 +1,12 @@
+# Environment — никогда не коммитим реальные секреты
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Docker volumes (если вдруг окажутся рядом)
+postgres_data/
+minio_data/
