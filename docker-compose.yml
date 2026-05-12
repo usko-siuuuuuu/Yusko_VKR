@@ -10,7 +10,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # SQL-файлы из этой папки выполнятся при первом старте контейнера
       - ./backend/db/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
@@ -31,8 +30,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"   # S3 API — к нему обращается бэкенд
-      - "9001:9001"   # Web-консоль MinIO — для ручного просмотра файлов
+      - "9000:9000"
+      - "9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
@@ -46,7 +45,6 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      # Монтируем исходники внутрь контейнера для hot-reload при разработке
       - ./backend:/app
     ports:
       - "8000:8000"
@@ -55,6 +53,16 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

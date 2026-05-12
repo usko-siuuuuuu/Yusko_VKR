@@ -1,0 +1,261 @@
+.page {
+  padding: 32px;
+  max-width: 1100px;
+}
+
+.back {
+  background: none;
+  border: none;
+  color: #3b82f6;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 20px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+
+.number {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: #1d4ed8;
+}
+
+.description {
+  margin: 0;
+  color: #374151;
+  font-size: 15px;
+  max-width: 600px;
+}
+
+.badges {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.cardTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 16px;
+  color: #111827;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  gap: 12px;
+}
+
+.field span:first-child {
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.field span:last-child {
+  color: #111827;
+  text-align: right;
+}
+
+.requirements {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f3f4f6;
+  font-size: 14px;
+  color: #374151;
+}
+
+.reqLabel {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #111827;
+}
+
+.rightCol {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.commentInput {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  resize: vertical;
+  margin-bottom: 12px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.commentInput:focus {
+  border-color: #3b82f6;
+}
+
+.transitionBtns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transBtn {
+  padding: 9px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 0.15s;
+}
+
+.transBtn:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.transBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.uploadBtn {
+  display: inline-block;
+  padding: 8px 16px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: background 0.15s;
+}
+
+.uploadBtn:hover {
+  background: #e5e7eb;
+}
+
+.noAttachments {
+  font-size: 14px;
+  color: #9ca3af;
+}
+
+.attachList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.attachName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.attachActions {
+  display: flex;
+  gap: 6px;
+}
+
+.attachActions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.attachActions button:hover {
+  background: #e5e7eb;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.timelineItem {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.timelineDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.timelineContent {
+  flex: 1;
+}
+
+.timelineStatus {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.timelineMeta {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.timelineComment {
+  font-size: 13px;
+  color: #374151;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: #f9fafb;
+  border-radius: 6px;
+}

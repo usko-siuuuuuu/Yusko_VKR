@@ -80,3 +80,63 @@
 - by-work-type и by-contractor: LEFT JOIN, агрегаты
 - overdue: фильтр по planned_finish_at < today и статус не closed/rejected
 - timeline: группировка по ISO-неделям (to_char + IYYY-IW), параметр weeks (1-52)
+
+## Фронтенд — базовая структура (ГОТОВО)
+- Создано React + Vite приложение в папке frontend/
+- Установлены: react-router-dom, axios, recharts
+- Настроен axios-клиент с JWT-интерцептором и авто-редиректом на /login при 401
+- ВАЖНО: токен сохраняется в localStorage ДО вызова getMe() — иначе 401
+- Реализован AuthContext: хранение токена, getMe при загрузке, signIn/signOut
+- Созданы api-модули: client, auth, issues, attachments, analytics, catalogs
+- Страница /login: форма входа, обработка ошибок, CSS-модуль — РАБОТАЕТ
+- App.jsx: роутинг, PrivateRoute с проверкой ролей
+- Константы: STATUS_LABELS/COLORS, PRIORITY_LABELS/COLORS, ROLE_LABELS
+- Добавлен CORS middleware в backend/main.py (allow_origins: localhost:5173)
+- Заглушки для IssuesPage, IssueDetailPage, AnalyticsPage, AdminPage
+- Рабочий браузер для разработки: Chrome (Edge блокирует DevTools)
+
+## Фронтенд — страницы Issues и IssueDetail (ГОТОВО)
+- Layout.jsx + Layout.module.css — боковая навигация с учётом ролей, кнопка выхода
+- IssuesPage.jsx + IssuesPage.module.css — таблица замечаний, фильтры по статусу/приоритету/подрядчику, цветные бейджи, клик по строке → карточка
+- IssueDetailPage.jsx + IssueDetailPage.module.css — детали замечания, смена статуса с комментарием, загрузка/скачивание/удаление вложений, история статусов с таймлайном
+- Исправлены пути API (не совпадали с бэкендом):
+  - /catalogs/contractors → /contractors
+  - /catalogs/work-types → /work-types
+  - /catalogs/defect-causes → /defect-causes
+  - /catalogs/construction-objects → /construction-objects
+  - /attachments/{id} → /issues/{id}/attachments (список и загрузка)
+
+  ## Фронтенд — страница Analytics (ГОТОВО)
+- AnalyticsPage.jsx + AnalyticsPage.module.css
+- KPI карточки: всего замечаний, открытых, закрытых, просроченных, среднее время закрытия, процент закрытия
+- PieChart — распределение по статусам с цветами из STATUS_COLORS
+- BarChart (горизонтальный) — по видам работ: всего vs закрыто
+- BarChart (горизонтальный) — по подрядчикам: всего vs просрочено
+- LineChart — динамика открытых/закрытых по ISO-неделям (8 недель)
+- Все эндпоинты аналитики требуют обязательный параметр object_id
+- object_id берётся динамически через getObjects()[0].id из /construction-objects
+- Исправлен api/analytics.js — все функции принимают objectId первым аргументом
+
+## Фронтенд — страница Admin (ГОТОВО)
+- AdminPage.jsx + AdminPage.module.css
+- Три вкладки: виды работ, подрядчики, причины дефектов
+- Создание новых записей, деактивация/активация существующих
+- Доступна только роли admin (защита через PrivateRoute)
+- Все 4 страницы фронтенда реализованы и работают
+
+## Фронтенд — страница CreateIssue (ГОТОВО)
+- CreateIssuePage.jsx + CreateIssuePage.module.css
+- Поля: объект, локация, вид работ, подрядчик, приоритет, срок, описание, требования, нормативное основание, причина дефекта
+- Добавлен эндпоинт GET /locations на бэкенде (routers/catalogs.py + schemas/catalogs.py → LocationResponse)
+- Создание замечания работает, редирект на карточку после создания
+- Весь фронтенд готов к демонстрации
+
+## Docker для фронтенда (ГОТОВО)
+- frontend/Dockerfile — двухэтапная сборка: node:20-alpine (сборка) + nginx:alpine (раздача)
+- frontend/nginx.conf — раздача статики + прокси /api/ → http://api:8000/
+- frontend/.env.production — VITE_API_URL=/api (для Docker-сборки)
+- frontend/.env — VITE_API_URL=http://localhost:8000 (для npm run dev)
+- docker-compose.yml — добавлен сервис frontend, порт 80
+- Приложение запускается одной командой: docker-compose up -d
+- Продакшн-URL: http://localhost (порт 80)
+- Dev-URL: http://localhost:5173 (npm run dev)

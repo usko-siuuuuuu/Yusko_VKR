@@ -89,3 +89,14 @@ class ConstructionObjectResponse(BaseModel):
     created_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
+# ── Location ──────────────────────────────────────────────────────────────────
+
+class LocationResponse(BaseModel):
+    id: int
+    object_id: int
+    parent_id: int | None
+    level: str
+    name: str
+
+    model_config = {"from_attributes": True}

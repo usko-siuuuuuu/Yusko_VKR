@@ -257,3 +257,23 @@ async def deactivate_construction_object(
         raise HTTPException(status_code=404, detail="Объект строительства не найден")
     obj.is_active = False
     await db.commit()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ЛОКАЦИИ
+# ══════════════════════════════════════════════════════════════════════════════
+
+from models.location import Location
+from schemas.catalogs import LocationResponse
+
+@router.get("/locations", response_model=list[LocationResponse])
+async def list_locations(
+    object_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Location)
+        .where(Location.object_id == object_id)
+        .order_by(Location.level, Location.name)
+    )
+    return result.scalars().all()
