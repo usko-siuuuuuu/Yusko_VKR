@@ -3,13 +3,12 @@ from pydantic import BaseModel
 
 class SummaryResponse(BaseModel):
     total: int
-    created: int
     issued: int
     in_progress: int
-    on_review: int
+    on_review_supervisor: int
+    on_review_client: int
     rework: int
     closed: int
-    rejected: int
     overdue: int
     avg_close_days: float | None
 

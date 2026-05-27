@@ -140,3 +140,124 @@
 - Приложение запускается одной командой: docker-compose up -d
 - Продакшн-URL: http://localhost (порт 80)
 - Dev-URL: http://localhost:5173 (npm run dev)
+
+## Управление пользователями (администратор) — ГОТОВО
+- backend/routers/users.py — GET /users, POST /users, PATCH /users/{id}
+- Только для роли admin (require_admin)
+- POST: создание с хэшированием пароля, проверка дублирования email
+- PATCH: смена пароля, смены роли, деактивация/активация
+- backend/schemas/user.py — добавлены UserCreate, UserUpdate, UserListResponse, UserRole
+- frontend/src/api/users.js — getUsers, createUser, updateUser
+- AdminPage.jsx — добавлена вкладка "Пользователи": таблица, модалка создания, модалка смены пароля, деактивация
+
+## РЕФАКТОРИНГ v2 — АРХИТЕКТУРНАЯ ПЕРЕРАБОТКА СИСТЕМЫ
+
+### Причина
+Принято решение о полной переработке ролевой модели, структуры БД и логики замечаний.
+Старая схема (inspector/foreman/pto_engineer/project_manager/client_rep) заменена на
+реальную строительную иерархию.
+
+### Новая ролевая модель
+- admin — администратор системы, полный доступ
+- client_rep — представитель заказчика
+- supervisor — технадзор генподрядчика
+- foreman — прораб подрядной организации
+
+### Новая структура организаций
+- organizations: customer | general_contractor | subcontractor
+- object_organizations: привязка организаций к объекту
+- object_members: привязка конкретных пользователей к объекту
+
+### Два типа замечаний
+- type1: supervisor → foreman (внутренний контур генподрядчика)
+- type2: client_rep → supervisor → foreman (двухконтурный)
+- Статусы: issued | in_progress | on_review_supervisor | on_review_client | rework | closed
+- visible_to_client в истории и вложениях — скрывает внутренний контур от заказчика
+
+### Новые поля в issues
+- issue_type, supervisor_id, subcontractor_org_id, axes, work_type_custom
+- document_id (ссылка на нормативный/проектный документ)
+- location_x, location_y (координаты точки на схеме фасада, % от размера)
+- убраны: priority, normative_reference, defect_cause_id
+
+### Новые таблицы
+- organizations, object_organizations, object_members, documents
+
+### Шаг 1 — Миграция БД v2 — ГОТОВО
+- Файл backend/db/init/01_schema.sql полностью переписан
+- БД пересоздана: docker-compose down -v && docker-compose up --build -d
+- Тестовые данные: 4 организации, 5 пользователей, 1 объект, 6 замечаний
+
+### Шаг 2 — Бэкенд: модели, организации, пользователи, объекты — В РАБОТЕ
+### Шаг 3 — Бэкенд: переработка замечаний (два типа, новые статусы) — ОЖИДАЕТ
+### Шаг 4 — Фронтенд: dashboard + объект как контекст — ОЖИДАЕТ
+### Шаг 5 — Фронтенд: новые карточки замечаний — ОЖИДАЕТ
+### Шаг 6 — Фронтенд: AdminPage (организации, пользователи, объекты) — ОЖИДАЕТ
+
+### Шаг 2 — Бэкенд: модели, организации, объекты — ГОТОВО
+- Новые модели: Organization, ObjectMember, ObjectOrganization, Document
+- Обновлены модели: User (organization_id, position), ConstructionObject (photo_key, date_start, date_end), Issue (issue_type, supervisor_id, subcontractor_org_id, axes, location_x, location_y, document_id), IssueStatusHistory (visible_to_client)
+- Новые роутеры: /organizations (CRUD, только admin), /objects (список, создание, организации объекта, участники)
+- Новые схемы: schemas/organization.py, schemas/objects.py
+- Обновлены роутеры: catalogs.py (убраны contractors/defect_causes), issues.py (новая машина состояний), analytics.py (новые статусы, Organization вместо Contractor)
+- Обновлены схемы: catalogs.py, issue.py, analytics.py
+
+### Шаг 3 — Бэкенд: пользователи и документы — ГОТОВО
+- users.py: новые роли (admin/client_rep/supervisor/foreman), поля position/organization_id, object_ids при создании
+- GET /users/by-object/{object_id} — участники конкретного объекта с фильтром по роли
+- PATCH /users/{user_id}/password — смена пароля самим пользователем (требует старый пароль)
+- documents.py: CRUD для нормативных и проектных документов
+- GET /documents?object_id=X — возвращает нормативные (общие) + проектные этого объекта
+- schemas/user.py: обновлены роли, добавлены position/organization_id/object_ids
+- schemas/documents.py: валидация типов, проектный документ требует object_id
+
+### Шаг 4 — Фронтенд: dashboard + объект как контекст — ГОТОВО
+- DashboardPage.jsx + DashboardPage.module.css — главная страница с карточками объектов и сменой пароля
+- ObjectPage.jsx + ObjectPage.module.css — контейнер объекта с боковой навигацией, использует Outlet для вложенных маршрутов
+- ObjectContext.jsx — контекст текущего выбранного объекта (setCurrentObject при входе в объект)
+- App.jsx — новый роутинг: /dashboard (главная), /objects/:id/issues, /objects/:id/analytics, /objects/:id/issues/new, /objects/:id/issues/:issueId
+- api/objects.js — getObjects, getObject, createObject, updateObject, getObjectMembers, addObjectMember, removeObjectMember, getObjectOrganizations, addObjectOrganization
+- api/organizations.js — getOrganizations, createOrganization, updateOrganization
+- api/documents.js — getDocuments, createDocument, updateDocument
+- Пустой dashboard показывает сообщение "Обратитесь к администратору"
+- Убрана подпись "ЖК Северный парк" со страницы логина
+- Исправлен хэш паролей в 01_schema.sql (был nmtIl9 → правильный nmtI79), пересоздана БД
+- Рабочий хэш для password123: $2b$12$gZOncxlvJCkD8d.Avas4zeB/gykHLlj8zVEU4kdVWdfxToaejJio2
+
+### Шаг 5 — Фронтенд: новые карточки замечаний — ГОТОВО
+- constants.js — новые статусы, ISSUE_TYPE_LABELS, ROLE_LABELS, ORG_TYPE_LABELS; убраны PRIORITY_*
+- api/issues.js — getIssues принимает objectId первым параметром
+- IssuesPage.jsx — фильтры по статусу/типу/подрядчику, колонка "Тип", бейдж "Просрочено", навигация внутри объекта
+- CreateIssuePage.jsx — два типа (тип определяется по роли), поля axes/work_type_custom/document_id, убраны priority/normative_reference/defect_cause
+- IssueDetailPage.jsx — двухконтурная видимость для client_rep, блок дозаполнения для supervisor (тип2), новая машина состояний, навигация внутри объекта
+
+### Шаг 6 — Фронтенд: AdminPage — ГОТОВО
+- 5 вкладок: Организации, Пользователи, Объекты, Виды работ, Документы
+- Организации: создание (название + тип), деактивация
+- Пользователи: создание (ФИО, email, пароль, должность=роль, организация, объекты), смена пароля, деактивация (кроме admin)
+- Создание admin через интерфейс заблокировано, деактивация admin заблокирована
+- Объекты: создание, управление организациями (добавление/удаление) и участниками (добавление/удаление)
+- Виды работ: создание, деактивация
+- Документы: создание (нормативные/проектные), деактивация
+- Кнопка «Администрирование» на dashboard только для роли admin
+- Исправлен баг: is_overdue считается на лету в list_issues (не из БД)
+- Убрана подпись «ЖК Северный парк» со страницы логина
+
+### Шаг 7 — Имена вместо ID в карточках — ГОТОВО
+- schemas/issue.py: добавлены поля *_name в IssueResponse и changed_by_name в IssueStatusHistoryResponse
+- routers/issues.py: функция _enrich_issue подгружает имена автора, технадзора, прораба, подрядчика, вида работ, документа
+- list_issues, get_issue, create_issue, update_issue возвращают обогащённые данные
+- get_issue_history возвращает changed_by_name
+- IssueDetailPage.jsx: отображает реальные имена вместо ID
+- IssuesPage.jsx: колонка подрядчика показывает название организации
+
+### Шаг 8 — Проверка ролей — ГОТОВО
+- supervisor: видит все замечания объекта (тип1 и тип2), аналитика доступна
+- foreman: видит только свои замечания (assignee_id), нет кнопки создания, нет фильтра подрядчика
+- client_rep: видит только тип2, есть кнопка создания, аналитика только по тип2
+- Аналитика теперь доступна всем ролям включая foreman (только по своим замечаниям)
+
+### Шаг 9 — Аналитика под новую схему — ГОТОВО
+- _base_filters() — единая функция фильтрации по роли: foreman → assignee_id, client_rep → type2
+- is_overdue считается на лету (planned_finish_at < today AND status != closed) вместо поля из БД
+- Убран BLOCKED_ROLES — foreman теперь имеет доступ к аналитике

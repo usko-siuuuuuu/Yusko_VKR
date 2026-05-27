@@ -36,7 +36,6 @@ export default function LoginPage() {
     <div className={styles.wrapper}>
       <div className={styles.card}>
         <h1 className={styles.title}>Реестр замечаний</h1>
-        <p className={styles.subtitle}>ЖК «Северный парк», корп. 3</p>
         <form onSubmit={handleSubmit} className={styles.form}>
           <label className={styles.label}>
             Email

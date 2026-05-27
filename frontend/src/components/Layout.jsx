@@ -26,7 +26,7 @@ export default function Layout({ children }) {
           )}
           {user?.role === 'admin' && (
             <NavLink to="/admin" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
-              Справочники
+              Администрирование
             </NavLink>
           )}
         </nav>

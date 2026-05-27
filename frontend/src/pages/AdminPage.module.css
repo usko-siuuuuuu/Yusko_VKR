@@ -1,6 +1,6 @@
 .page {
   padding: 32px;
-  max-width: 900px;
+  max-width: 1200px;
 }
 
 .title {
@@ -13,6 +13,7 @@
   display: flex;
   gap: 8px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
 }
 
 .tab {
@@ -26,9 +27,7 @@
   transition: all 0.15s;
 }
 
-.tab:hover {
-  background: #f3f4f6;
-}
+.tab:hover { background: #f3f4f6; }
 
 .activeTab {
   background: #1d4ed8;
@@ -36,10 +35,11 @@
   border-color: #1d4ed8;
 }
 
-.createRow {
+.toolbar {
   display: flex;
   gap: 12px;
   margin-bottom: 20px;
+  align-items: center;
 }
 
 .input {
@@ -49,11 +49,10 @@
   border-radius: 8px;
   font-size: 14px;
   outline: none;
+  background: #fff;
 }
 
-.input:focus {
-  border-color: #3b82f6;
-}
+.input:focus { border-color: #3b82f6; }
 
 .createBtn {
   padding: 9px 20px;
@@ -64,23 +63,19 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.15s;
 }
 
-.createBtn:hover:not(:disabled) {
-  background: #1e40af;
-}
-
-.createBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.createBtn:hover:not(:disabled) { background: #1e40af; }
+.createBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .tableWrap {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
+  margin-bottom: 24px;
 }
 
 .table {
@@ -101,20 +96,13 @@
 .table td {
   padding: 12px 16px;
   border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
 }
 
-.inactive td {
-  opacity: 0.5;
-}
+.inactive td { opacity: 0.5; }
 
-.active {
-  color: #10b981;
-  font-weight: 600;
-}
-
-.deactive {
-  color: #9ca3af;
-}
+.activeStatus  { color: #10b981; font-weight: 600; }
+.deactiveStatus { color: #9ca3af; }
 
 .toggleBtn {
   padding: 5px 12px;
@@ -123,9 +111,156 @@
   background: #fff;
   font-size: 13px;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.15s;
 }
 
-.toggleBtn:hover {
-  background: #f3f4f6;
+.toggleBtn:hover { background: #f3f4f6; }
+
+.typeBadge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
 }
+
+.roleBadge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: #f0fdf4;
+  color: #16a34a;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.emailCell { font-size: 13px; color: #6b7280; }
+.actionsCell { display: flex; gap: 8px; }
+.objectName { font-weight: 600; }
+
+/* Управление объектом */
+.objectDetail { }
+
+.backBtn {
+  padding: 7px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 16px;
+  transition: background 0.15s;
+}
+
+.backBtn:hover { background: #f3f4f6; }
+
+.objectTitle {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 20px;
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.subHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.subHeader h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.smallBtn {
+  padding: 5px 12px;
+  background: #1d4ed8;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.smallBtn:hover { background: #1e40af; }
+
+/* Модалки */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 32px;
+  width: 480px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+
+.modalTitle {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.modalSubtitle {
+  font-size: 14px;
+  color: #6b7280;
+  margin: -4px 0 4px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: -4px;
+}
+
+.hint {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: -4px 0 0;
+}
+
+.modalActions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.cancelBtn {
+  padding: 9px 20px;
+  background: #f3f4f6;
+  color: #374151;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancelBtn:hover { background: #e5e7eb; }

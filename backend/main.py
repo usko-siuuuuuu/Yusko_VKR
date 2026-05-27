@@ -10,6 +10,10 @@ from routers.attachments import router as attachments_router
 from routers.auth import router as auth_router
 from routers.catalogs import router as catalogs_router
 from routers.issues import router as issues_router
+from routers.users import router as users_router
+from routers.organizations import router as organizations_router
+from routers.documents import router as documents_router
+from routers.objects import router as objects_router
 
 
 @asynccontextmanager
@@ -39,6 +43,10 @@ app.include_router(catalogs_router)
 app.include_router(issues_router)
 app.include_router(attachments_router)
 app.include_router(analytics_router)
+app.include_router(users_router)
+app.include_router(organizations_router)
+app.include_router(objects_router)
+app.include_router(documents_router)
 
 
 @app.get("/health")

@@ -21,61 +21,22 @@ class WorkTypeResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── DefectCause ───────────────────────────────────────────────────────────────
-
-class DefectCauseCreate(BaseModel):
-    name: str
-
-
-class DefectCauseUpdate(BaseModel):
-    name: str | None = None
-    is_active: bool | None = None
-
-
-class DefectCauseResponse(BaseModel):
-    id: int
-    name: str
-    is_active: bool
-
-    model_config = {"from_attributes": True}
-
-
-# ── Contractor ────────────────────────────────────────────────────────────────
-
-class ContractorCreate(BaseModel):
-    name: str
-    inn: str | None = None
-
-
-class ContractorUpdate(BaseModel):
-    name: str | None = None
-    inn: str | None = None
-    is_active: bool | None = None
-
-
-class ContractorResponse(BaseModel):
-    id: int
-    name: str
-    inn: str | None
-    is_active: bool
-
-    model_config = {"from_attributes": True}
-
-
 # ── ConstructionObject ────────────────────────────────────────────────────────
 
 class ConstructionObjectCreate(BaseModel):
     name: str
     description: str | None = None
-    started_at: datetime.date | None = None
-    finished_at: datetime.date | None = None
+    photo_key: str | None = None
+    date_start: str | None = None
+    date_end: str | None = None
 
 
 class ConstructionObjectUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    started_at: datetime.date | None = None
-    finished_at: datetime.date | None = None
+    photo_key: str | None = None
+    date_start: str | None = None
+    date_end: str | None = None
     is_active: bool | None = None
 
 
@@ -83,12 +44,14 @@ class ConstructionObjectResponse(BaseModel):
     id: int
     name: str
     description: str | None
-    started_at: datetime.date | None
-    finished_at: datetime.date | None
+    photo_key: str | None
+    date_start: str | None
+    date_end: str | None
     is_active: bool
     created_at: datetime.datetime
 
     model_config = {"from_attributes": True}
+
 
 # ── Location ──────────────────────────────────────────────────────────────────
 

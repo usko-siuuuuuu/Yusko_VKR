@@ -1,120 +1,168 @@
 -- =============================================================================
--- Схема БД: WEB-приложение для сбора и анализа замечаний по качеству
--- Файл выполняется автоматически при первом запуске контейнера PostgreSQL
+-- Схема БД v2: WEB-приложение для сбора и анализа замечаний по качеству
 -- =============================================================================
 
--- Расширение для генерации UUID
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-
 -- =============================================================================
--- СПРАВОЧНИКИ
+-- ОРГАНИЗАЦИИ
 -- =============================================================================
 
--- Виды работ
-CREATE TABLE work_types (
+CREATE TABLE organizations (
     id          SERIAL PRIMARY KEY,
-    name        VARCHAR(255) NOT NULL UNIQUE,
-    is_active   BOOLEAN NOT NULL DEFAULT TRUE
+    name        VARCHAR(255) NOT NULL,
+    type        VARCHAR(50)  NOT NULL, -- customer | general_contractor | subcontractor
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Причины дефектов
-CREATE TABLE defect_causes (
-    id          SERIAL PRIMARY KEY,
-    name        VARCHAR(255) NOT NULL UNIQUE,
-    is_active   BOOLEAN NOT NULL DEFAULT TRUE
-);
+-- =============================================================================
+-- ПОЛЬЗОВАТЕЛИ
+-- Роли: admin | client_rep | supervisor | foreman
+-- =============================================================================
 
+CREATE TABLE users (
+    id              SERIAL PRIMARY KEY,
+    full_name       VARCHAR(255) NOT NULL,
+    email           VARCHAR(255) NOT NULL UNIQUE,
+    password_hash   VARCHAR(255) NOT NULL,
+    role            VARCHAR(50)  NOT NULL,
+    position        VARCHAR(255),
+    organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- =============================================================================
 -- ОБЪЕКТЫ СТРОИТЕЛЬСТВА
 -- =============================================================================
 
 CREATE TABLE construction_objects (
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(255) NOT NULL,
+    description     TEXT,
+    photo_key       VARCHAR(500),           -- путь к фото в MinIO
+    date_start      VARCHAR(20),            -- свободный формат: 2022, 02.2022, 02.04.2022
+    date_end        VARCHAR(20),
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- ПРИВЯЗКА ОРГАНИЗАЦИЙ К ОБЪЕКТУ
+-- Одна запись = одна организация участвует в объекте в определённой роли
+-- =============================================================================
+
+CREATE TABLE object_organizations (
+    id              SERIAL PRIMARY KEY,
+    object_id       INTEGER NOT NULL REFERENCES construction_objects(id) ON DELETE CASCADE,
+    organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    role            VARCHAR(50) NOT NULL,   -- customer | general_contractor | subcontractor
+    UNIQUE (object_id, organization_id)
+);
+
+-- =============================================================================
+-- УЧАСТНИКИ ОБЪЕКТА (конкретные пользователи)
+-- =============================================================================
+
+CREATE TABLE object_members (
+    id          SERIAL PRIMARY KEY,
+    object_id   INTEGER NOT NULL REFERENCES construction_objects(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    added_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    added_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (object_id, user_id)
+);
+
+-- =============================================================================
+-- СПРАВОЧНИКИ
+-- =============================================================================
+
+CREATE TABLE work_types (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(255) NOT NULL UNIQUE,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE defect_causes (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(255) NOT NULL UNIQUE,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- =============================================================================
+-- НОРМАТИВНЫЕ И ПРОЕКТНЫЕ ДОКУМЕНТЫ
+-- =============================================================================
+
+CREATE TABLE documents (
     id          SERIAL PRIMARY KEY,
     name        VARCHAR(255) NOT NULL,
-    description TEXT,
-    started_at  DATE,
-    finished_at DATE,
+    short_name  VARCHAR(100),               -- напр. "СП 426"
+    doc_type    VARCHAR(20) NOT NULL,       -- normative | project
+    object_id   INTEGER REFERENCES construction_objects(id) ON DELETE CASCADE,
+    file_key    VARCHAR(500),               -- путь к PDF в MinIO (если загружен)
     is_active   BOOLEAN NOT NULL DEFAULT TRUE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-
 -- =============================================================================
--- ЛОКАЦИИ (иерархия: корпус → секция → этаж → помещение)
--- Самоссылающаяся таблица: parent_id указывает на родительский узел
+-- ЛОКАЦИИ (иерархия внутри объекта)
 -- =============================================================================
 
 CREATE TABLE locations (
     id          SERIAL PRIMARY KEY,
     object_id   INTEGER NOT NULL REFERENCES construction_objects(id) ON DELETE CASCADE,
     parent_id   INTEGER REFERENCES locations(id) ON DELETE CASCADE,
-    level       VARCHAR(50) NOT NULL, -- 'building' | 'section' | 'floor' | 'room'
+    level       VARCHAR(50) NOT NULL,       -- building | section | floor | room
     name        VARCHAR(255) NOT NULL
 );
 
-
 -- =============================================================================
--- ПОДРЯДЧИКИ
--- =============================================================================
-
-CREATE TABLE contractors (
-    id          SERIAL PRIMARY KEY,
-    name        VARCHAR(255) NOT NULL,
-    inn         VARCHAR(12),
-    is_active   BOOLEAN NOT NULL DEFAULT TRUE
-);
-
-
--- =============================================================================
--- ПОЛЬЗОВАТЕЛИ
+-- ЗАМЕЧАНИЯ
+-- issue_type: type1 (supervisor→foreman) | type2 (client_rep→supervisor→foreman)
+--
+-- Статусы:
+--   issued               — выдано (начальный)
+--   in_progress          — в работе (у прораба)
+--   on_review_supervisor — на проверке у технадзора
+--   on_review_client     — на проверке у заказчика (только тип 2)
+--   rework               — на доработку
+--   closed               — закрыто
 -- =============================================================================
 
--- Роли: inspector | foreman | pto_engineer | client_rep | project_manager | admin
-CREATE TABLE users (
-    id              SERIAL PRIMARY KEY,
-    full_name       VARCHAR(255) NOT NULL,
-    email           VARCHAR(255) NOT NULL UNIQUE,
-    password_hash   VARCHAR(255) NOT NULL,
-    role            VARCHAR(50) NOT NULL,
-    contractor_id   INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-
--- =============================================================================
--- ЗАМЕЧАНИЯ (центральная таблица)
--- =============================================================================
-
--- Статусы: created | issued | in_progress | on_review | rework | rejected | closed
 CREATE TABLE issues (
-    id                  SERIAL PRIMARY KEY,
-    number              VARCHAR(50) NOT NULL UNIQUE, -- человекочитаемый номер, напр. "ФАС-0001"
-    object_id           INTEGER NOT NULL REFERENCES construction_objects(id),
-    location_id         INTEGER REFERENCES locations(id) ON DELETE SET NULL,
-    work_type_id        INTEGER REFERENCES work_types(id) ON DELETE SET NULL,
-    contractor_id       INTEGER REFERENCES contractors(id) ON DELETE SET NULL,
+    id                      SERIAL PRIMARY KEY,
+    number                  VARCHAR(50) NOT NULL UNIQUE,
+    object_id               INTEGER NOT NULL REFERENCES construction_objects(id),
+    location_id             INTEGER REFERENCES locations(id) ON DELETE SET NULL,
+    work_type_id            INTEGER REFERENCES work_types(id) ON DELETE SET NULL,
+    work_type_custom        VARCHAR(255),       -- свободный ввод если нет в справочнике
 
-    author_id           INTEGER NOT NULL REFERENCES users(id),
-    assignee_id         INTEGER REFERENCES users(id) ON DELETE SET NULL, -- ответственный исполнитель
+    issue_type              VARCHAR(10) NOT NULL DEFAULT 'type1', -- type1 | type2
 
-    status              VARCHAR(50) NOT NULL DEFAULT 'created',
-    priority            VARCHAR(20) NOT NULL DEFAULT 'normal', -- low | normal | high | critical
-    description         TEXT NOT NULL,                         -- описание несоответствия
-    requirements        TEXT,                                  -- требования к устранению
-    normative_reference VARCHAR(500),                          -- ссылка на СП/ГОСТ/проект
-    defect_cause_id     INTEGER REFERENCES defect_causes(id) ON DELETE SET NULL,
+    -- Участники
+    author_id               INTEGER NOT NULL REFERENCES users(id),
+    supervisor_id           INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- технадзор (для тип2)
+    assignee_id             INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- прораб
+    subcontractor_org_id    INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
 
-    planned_finish_at   DATE,                                  -- плановая дата устранения
-    is_overdue          BOOLEAN NOT NULL DEFAULT FALSE,        -- флаг просрочки
+    -- Описание
+    axes                    VARCHAR(255),       -- оси и отметка
+    location_x  NUMERIC(5,2),   -- координата X на схеме фасада (% от ширины)
+    location_y  NUMERIC(5,2),   -- координата Y на схеме фасада (% от высоты)
+    description             TEXT NOT NULL,
+    requirements            TEXT,
+    document_id             INTEGER REFERENCES documents(id) ON DELETE SET NULL,
 
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    -- Статус и сроки
+    status                  VARCHAR(50) NOT NULL DEFAULT 'issued',
+    planned_finish_at       DATE,
+    is_overdue              BOOLEAN NOT NULL DEFAULT FALSE,
+
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Автоматически обновляем updated_at при любом изменении строки
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -127,60 +175,109 @@ CREATE TRIGGER issues_updated_at
     BEFORE UPDATE ON issues
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
-
 -- =============================================================================
 -- ИСТОРИЯ СТАТУСОВ
--- Каждая смена статуса — отдельная строка. Удалять нельзя, только читать.
+-- visible_to_client = FALSE скрывает запись от client_rep (внутренний контур)
 -- =============================================================================
 
 CREATE TABLE issue_status_history (
-    id          SERIAL PRIMARY KEY,
-    issue_id    INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-    old_status  VARCHAR(50),
-    new_status  VARCHAR(50) NOT NULL,
-    changed_by  INTEGER NOT NULL REFERENCES users(id),
-    comment     TEXT,
-    changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  SERIAL PRIMARY KEY,
+    issue_id            INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    old_status          VARCHAR(50),
+    new_status          VARCHAR(50) NOT NULL,
+    changed_by          INTEGER NOT NULL REFERENCES users(id),
+    comment             TEXT,
+    visible_to_client   BOOLEAN NOT NULL DEFAULT TRUE,
+    changed_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
 
 -- =============================================================================
 -- ВЛОЖЕНИЯ
--- Файлы хранятся в MinIO, здесь только метаданные и путь к файлу
 -- =============================================================================
 
 CREATE TABLE attachments (
-    id              SERIAL PRIMARY KEY,
-    issue_id        INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-    uploaded_by     INTEGER NOT NULL REFERENCES users(id),
-    -- На каком этапе прикреплён файл (например, 'on_review' = фото устранения)
-    status_at_upload VARCHAR(50),
-    file_name       VARCHAR(255) NOT NULL,  -- оригинальное имя файла
-    file_size       INTEGER NOT NULL,        -- размер в байтах
-    mime_type       VARCHAR(100) NOT NULL,
-    storage_path    VARCHAR(500) NOT NULL,   -- путь к объекту в MinIO
-    uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  SERIAL PRIMARY KEY,
+    issue_id            INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    uploaded_by         INTEGER NOT NULL REFERENCES users(id),
+    status_at_upload    VARCHAR(50),
+    file_name           VARCHAR(255) NOT NULL,
+    file_size           INTEGER NOT NULL,
+    mime_type           VARCHAR(100) NOT NULL,
+    storage_path        VARCHAR(500) NOT NULL,
+    visible_to_client   BOOLEAN NOT NULL DEFAULT TRUE,  -- фото всегда видны заказчику
+    uploaded_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- =============================================================================
+-- ИНДЕКСЫ
+-- =============================================================================
+
+CREATE INDEX idx_issues_object       ON issues(object_id);
+CREATE INDEX idx_issues_status       ON issues(status);
+CREATE INDEX idx_issues_assignee     ON issues(assignee_id);
+CREATE INDEX idx_issues_supervisor   ON issues(supervisor_id);
+CREATE INDEX idx_issues_type         ON issues(issue_type);
+CREATE INDEX idx_issues_overdue      ON issues(is_overdue) WHERE is_overdue = TRUE;
+CREATE INDEX idx_history_issue       ON issue_status_history(issue_id);
+CREATE INDEX idx_attachments_issue   ON attachments(issue_id);
+CREATE INDEX idx_locations_parent    ON locations(parent_id);
+CREATE INDEX idx_obj_members_user    ON object_members(user_id);
+CREATE INDEX idx_obj_members_object  ON object_members(object_id);
+CREATE INDEX idx_obj_orgs_object     ON object_organizations(object_id);
 
 -- =============================================================================
--- ИНДЕКСЫ для часто используемых фильтров
+-- ТЕСТОВЫЕ ДАННЫЕ
 -- =============================================================================
 
-CREATE INDEX idx_issues_object    ON issues(object_id);
-CREATE INDEX idx_issues_status    ON issues(status);
-CREATE INDEX idx_issues_assignee  ON issues(assignee_id);
-CREATE INDEX idx_issues_contractor ON issues(contractor_id);
-CREATE INDEX idx_issues_work_type ON issues(work_type_id);
-CREATE INDEX idx_issues_overdue   ON issues(is_overdue) WHERE is_overdue = TRUE;
-CREATE INDEX idx_history_issue    ON issue_status_history(issue_id);
-CREATE INDEX idx_attachments_issue ON attachments(issue_id);
-CREATE INDEX idx_locations_parent  ON locations(parent_id);
+-- Организации
+INSERT INTO organizations (name, type) VALUES
+    ('ООО "ИнвестСтрой"',         'customer'),
+    ('АО "СтройГрупп"',           'general_contractor'),
+    ('ООО "ФасадМонтаж"',         'subcontractor'),
+    ('ООО "СтройФасад Плюс"',     'subcontractor');
 
+-- Пользователи (пароль для всех: password123)
+INSERT INTO users (full_name, email, password_hash, role, position, organization_id) VALUES
+    ('Администратор Системы',       'admin@example.com',
+     '$2b$12$gZOncxlvJCkD8d.Avas4zeB/gykHLlj8zVEU4kdVWdfxToaejJio2',
+     'admin', 'Администратор', NULL),
 
--- =============================================================================
--- ТЕСТОВЫЕ ДАННЫЕ (фасадная тематика)
--- =============================================================================
+    ('Козлов Дмитрий Александрович','client@example.com',
+     '$2b$12$gZOncxlvJCkD8d.Avas4zeB/gykHLlj8zVEU4kdVWdfxToaejJio2',
+     'client_rep', 'Представитель заказчика', 1),
+
+    ('Петров Сергей Иванович',      'supervisor@example.com',
+     '$2b$12$gZOncxlvJCkD8d.Avas4zeB/gykHLlj8zVEU4kdVWdfxToaejJio2',
+     'supervisor', 'Технадзор', 2),
+
+    ('Смирнов Алексей Павлович',    'foreman1@example.com',
+     '$2b$12$gZOncxlvJCkD8d.Avas4zeB/gykHLlj8zVEU4kdVWdfxToaejJio2',
+     'foreman', 'Прораб', 3),
+
+    ('Иванов Михаил Сергеевич',     'foreman2@example.com',
+     '$2b$12$gZOncxlvJCkD8d.Avas4zeB/gykHLlj8zVEU4kdVWdfxToaejJio2',
+     'foreman', 'Прораб', 4);
+
+-- Объект строительства
+INSERT INTO construction_objects (name, description, date_start, date_end, is_active) VALUES
+    ('ЖК "Северный парк", корпус 3',
+     'Жилой комплекс, фасадные работы 3-го корпуса',
+     '04.2025', '12.2026', TRUE);
+
+-- Привязка организаций к объекту
+INSERT INTO object_organizations (object_id, organization_id, role) VALUES
+    (1, 1, 'customer'),
+    (1, 2, 'general_contractor'),
+    (1, 3, 'subcontractor'),
+    (1, 4, 'subcontractor');
+
+-- Участники объекта
+INSERT INTO object_members (object_id, user_id, added_by) VALUES
+    (1, 1, 1),  -- admin
+    (1, 2, 1),  -- client_rep
+    (1, 3, 1),  -- supervisor
+    (1, 4, 1),  -- foreman1
+    (1, 5, 1);  -- foreman2
 
 -- Виды работ
 INSERT INTO work_types (name) VALUES
@@ -193,32 +290,21 @@ INSERT INTO work_types (name) VALUES
     ('Штукатурные фасадные работы'),
     ('Окраска фасада');
 
--- Причины дефектов
-INSERT INTO defect_causes (name) VALUES
-    ('Нарушение технологии производства работ'),
-    ('Несоответствие применяемых материалов проекту'),
-    ('Ошибка в проектной документации'),
-    ('Недостаточная квалификация исполнителей'),
-    ('Нарушение условий хранения материалов'),
-    ('Отсутствие операционного контроля'),
-    ('Использование неактуальной версии проекта');
+-- Нормативные документы
+INSERT INTO documents (name, short_name, doc_type, object_id) VALUES
+    ('СП 426.1325800.2020 Фасады навесные вентилируемые', 'СП 426', 'normative', NULL),
+    ('СП 522.1325800.2023 Фасады навесные вентилируемые. Правила эксплуатации', 'СП 522', 'normative', NULL),
+    ('ГОСТ Р 58154-2018 Фасады навесные вентилируемые', 'ГОСТ Р 58154', 'normative', NULL),
+    ('Рабочая документация. Раздел АР. Фасады', 'РД АР', 'project', 1),
+    ('Технологическая карта монтажа НВФ', 'ТК НВФ', 'project', 1);
 
--- Объект строительства
-INSERT INTO construction_objects (name, description, started_at, is_active) VALUES
-    ('ЖК "Северный парк", корпус 3', 'Жилой комплекс, фасадные работы 3-го корпуса', '2025-04-01', TRUE);
-
--- Локации (иерархия для корпуса 3)
--- Уровень 1: корпус
+-- Локации
 INSERT INTO locations (object_id, parent_id, level, name) VALUES (1, NULL, 'building', 'Корпус 3');
-
--- Уровень 2: фасады (вместо секций — стороны света)
 INSERT INTO locations (object_id, parent_id, level, name) VALUES
     (1, 1, 'section', 'Фасад северный'),
     (1, 1, 'section', 'Фасад южный'),
     (1, 1, 'section', 'Фасад восточный'),
     (1, 1, 'section', 'Фасад западный');
-
--- Уровень 3: этажи (на северном фасаде для примера)
 INSERT INTO locations (object_id, parent_id, level, name) VALUES
     (1, 2, 'floor', 'Этаж 1'),
     (1, 2, 'floor', 'Этаж 2'),
@@ -226,113 +312,78 @@ INSERT INTO locations (object_id, parent_id, level, name) VALUES
     (1, 2, 'floor', 'Этаж 4'),
     (1, 2, 'floor', 'Этаж 5');
 
--- Подрядчики
-INSERT INTO contractors (name, inn) VALUES
-    ('ООО "ФасадСтрой"', '7701234567'),
-    ('ИП Миронов А.С.', '770198765432'),
-    ('ООО "СтройФасад Плюс"', '7703456789');
+-- Тестовые замечания
+INSERT INTO issues (number, object_id, location_id, work_type_id,
+                    issue_type, author_id, supervisor_id, assignee_id, subcontractor_org_id,
+                    axes, description, requirements, document_id,
+                    status, planned_finish_at) VALUES
 
--- Пользователи (пароль для всех тестовых: "password123")
--- Хэш сгенерирован через bcrypt
-INSERT INTO users (full_name, email, password_hash, role, contractor_id) VALUES
-    ('Петров Сергей Иванович',   'inspector@example.com',  '$2b$12$HnfLNyYl51Q8dqM0qVpeE.nmtI7l9Djq7eFfBUBAoLeYmI2d7F6Hu', 'inspector',        NULL),
-    ('Смирнов Алексей Павлович', 'foreman@example.com',    '$2b$12$HnfLNyYl51Q8dqM0qVpeE.nmtI7l9Djq7eFfBUBAoLeYmI2d7F6Hu', 'foreman',          1),
-    ('Иванова Марина Олеговна',  'pto@example.com',        '$2b$12$HnfLNyYl51Q8dqM0qVpeE.nmtI7l9Djq7eFfBUBAoLeYmI2d7F6Hu', 'pto_engineer',     NULL),
-    ('Козлов Дмитрий Александрович', 'client@example.com', '$2b$12$HnfLNyYl51Q8dqM0qVpeE.nmtI7l9Djq7eFfBUBAoLeYmI2d7F6Hu', 'client_rep',       NULL),
-    ('Новиков Андрей Викторович','manager@example.com',    '$2b$12$HnfLNyYl51Q8dqM0qVpeE.nmtI7l9Djq7eFfBUBAoLeYmI2d7F6Hu', 'project_manager',  NULL),
-    ('Администратор Системы',    'admin@example.com',      '$2b$12$HnfLNyYl51Q8dqM0qVpeE.nmtI7l9Djq7eFfBUBAoLeYmI2d7F6Hu', 'admin',            NULL);
+    ('ФАС-0001', 1, 6, 1,
+     'type1', 3, NULL, 4, 3,
+     'Ось А/1-3, отм. +3.000',
+     'Зазор между кронштейном подсистемы и несущей стеной превышает допустимое значение.',
+     'Выполнить замену кронштейнов на типоразмер согласно проекту.',
+     1, 'closed', '2025-05-15'),
 
--- Тестовые замечания по фасадным работам
-INSERT INTO issues (number, object_id, location_id, work_type_id, contractor_id, author_id, assignee_id,
-                    status, priority, description, requirements, normative_reference,
-                    defect_cause_id, planned_finish_at) VALUES
+    ('ФАС-0002', 1, 7, 2,
+     'type1', 3, NULL, 4, 3,
+     'Ось Б/2-5, отм. +6.000',
+     'Фасадные кассеты на этаже 2 установлены с нарушением горизонтального шва — отклонение до 8 мм.',
+     'Произвести перемонтаж кассет в соответствии с допусками.',
+     1, 'on_review_supervisor', '2025-05-20'),
 
-    ('ФАС-0001', 1, 6, 1, 1, 1, 2,
-     'closed', 'normal',
-     'Зазор между кронштейном подсистемы и несущей стеной превышает допустимое значение на участке оси А/1-3, этаж 1.',
-     'Выполнить замену кронштейнов на типоразмер согласно проекту. Предоставить фотофиксацию после устранения.',
-     'СП 426.1325800.2020 п. 6.3.2',
-     1, '2025-05-15'),
+    ('ФАС-0003', 1, 6, 3,
+     'type1', 3, NULL, 4, 3,
+     'Ось В/1-4, отм. +0.000',
+     'Теплоизоляционные плиты уложены без смещения швов.',
+     'Переложить теплоизоляцию с соблюдением перевязки швов.',
+     2, 'in_progress', '2025-05-18'),
 
-    ('ФАС-0002', 1, 7, 2, 1, 1, 2,
-     'on_review', 'high',
-     'Фасадные кассеты на этаже 2 (северный фасад) установлены с нарушением горизонтального шва — отклонение до 8 мм.',
-     'Произвести перемонтаж кассет в соответствии с допусками. Выполнить нивелировку.',
-     'СП 426.1325800.2020 п. 7.1.4',
-     1, '2025-05-20'),
+    ('ФАС-0004', 1, 8, 4,
+     'type1', 3, NULL, 5, 4,
+     'Ось Г/3-6, отм. +9.000',
+     'Монтажная пена в узлах примыкания оконных блоков нанесена неравномерно.',
+     'Вскрыть и переработать узлы примыкания.',
+     2, 'issued', '2025-06-01'),
 
-    ('ФАС-0003', 1, 6, 3, 1, 1, 2,
-     'in_progress', 'critical',
-     'Теплоизоляционные плиты на этаже 1 уложены без смещения швов. Стыки вертикальных и горизонтальных рядов совпадают на протяжении 4 м.',
-     'Полностью переложить теплоизоляцию на указанном участке с соблюдением перевязки швов.',
-     'СП 522.1325800.2023 п. 5.4.1',
-     1, '2025-05-18'),
+    ('ФАС-0005', 1, 7, 2,
+     'type2', 2, 3, 4, 3,
+     'Ось А/1-6, отм. +6.000',
+     'Фасадные кассеты на северном фасаде имеют видимые повреждения — вмятины и царапины.',
+     'Заменить повреждённые кассеты.',
+     1, 'on_review_client', '2025-06-10'),
 
-    ('ФАС-0004', 1, 8, 4, 2, 1, 2,
-     'issued', 'normal',
-     'Монтажная пена в узлах примыкания оконных блоков к проёму нанесена неравномерно. Выявлены незаполненные участки длиной до 15 см.',
-     'Вскрыть и переработать узлы примыкания. Нанести пену равномерно по всему периметру. Закрыть пароизоляционной лентой.',
-     'СП 522.1325800.2023 п. 6.2.3',
-     4, '2025-05-25'),
+    ('ФАС-0006', 1, 9, 5,
+     'type2', 2, 3, 5, 4,
+     'Ось Б/2-4, отм. +12.000',
+     'Герметик в вертикальных швах нанесён с пропусками.',
+     'Выполнить герметизацию по всей длине.',
+     1, 'in_progress', '2025-06-15');
 
-    ('ФАС-0005', 1, 9, 5, 1, 1, 2,
-     'created', 'high',
-     'Герметик в вертикальных швах между кассетами на этаже 4 нанесён с пропусками. Длина незагерметизированных участков — суммарно около 3 м.',
-     'Очистить швы, нанести грунтовку и выполнить герметизацию по всей длине согласно проекту.',
-     'СП 426.1325800.2020 п. 8.2.1',
-     1, '2025-05-30'),
+-- История статусов
+INSERT INTO issue_status_history
+    (issue_id, old_status, new_status, changed_by, comment, visible_to_client) VALUES
 
-    ('ФАС-0006', 1, 7, 6, 3, 1, 2,
-     'rework', 'normal',
-     'Водосточные воронки на этаже 2 установлены с уклоном от стены, что приведёт к скоплению воды у фасада.',
-     'Переустановить воронки с обеспечением уклона в сторону водосточной трубы не менее 2%.',
-     'СП 522.1325800.2023 п. 7.3.5',
-     1, '2025-05-22'),
+    (1, NULL,                  'issued',               3, 'Замечание выдано прорабу', TRUE),
+    (1, 'issued',              'in_progress',          4, 'Принято в работу', TRUE),
+    (1, 'in_progress',         'on_review_supervisor', 4, 'Кронштейны заменены', FALSE),
+    (1, 'on_review_supervisor','closed',               3, 'Устранение подтверждено', TRUE),
 
-    ('ФАС-0007', 1, 10, 1, 1, 1, 2,
-     'closed', 'low',
-     'На этаже 5 северного фасада отсутствует защитная плёнка на профилях подсистемы. Следы раствора на видимых поверхностях.',
-     'Выполнить очистку профилей. При невозможности очистки — замена элементов.',
-     'СП 426.1325800.2020 п. 5.1.3',
-     6, '2025-05-10');
+    (2, NULL,                  'issued',               3, 'Замечание выдано', TRUE),
+    (2, 'issued',              'in_progress',          4, 'Принято в работу', TRUE),
+    (2, 'in_progress',         'on_review_supervisor', 4, 'Кассеты перемонтированы', FALSE),
 
--- История статусов для тестовых замечаний
-INSERT INTO issue_status_history (issue_id, old_status, new_status, changed_by, comment) VALUES
-    -- ФАС-0001: полный цикл до закрытия
-    (1, NULL,          'created',     1, 'Замечание зафиксировано в ходе обхода'),
-    (1, 'created',     'issued',      1, 'Назначен исполнитель, установлен срок'),
-    (1, 'issued',      'in_progress', 2, 'Принято в работу'),
-    (1, 'in_progress', 'on_review',   2, 'Кронштейны заменены, фото приложены'),
-    (1, 'on_review',   'closed',      1, 'Устранение подтверждено, замечание закрыто'),
+    (3, NULL,                  'issued',               3, NULL, TRUE),
+    (3, 'issued',              'in_progress',          4, 'Приступили к разборке', TRUE),
 
-    -- ФАС-0002: на проверке
-    (2, NULL,          'created',     1, NULL),
-    (2, 'created',     'issued',      1, 'Назначен исполнитель'),
-    (2, 'issued',      'in_progress', 2, 'Принято в работу'),
-    (2, 'in_progress', 'on_review',   2, 'Кассеты перемонтированы'),
+    (4, NULL,                  'issued',               3, NULL, TRUE),
 
-    -- ФАС-0003: в работе
-    (3, NULL,          'created',     1, NULL),
-    (3, 'created',     'issued',      1, 'Критическое замечание, срочно'),
-    (3, 'issued',      'in_progress', 2, 'Приступили к разборке'),
+    (5, NULL,                  'issued',               2, 'Замечание от заказчика', TRUE),
+    (5, 'issued',              'in_progress',          4, NULL, FALSE),
+    (5, 'in_progress',         'on_review_supervisor', 4, 'Кассеты заменены', FALSE),
+    (5, 'on_review_supervisor','on_review_client',     3, 'Передаю заказчику на закрытие', TRUE),
 
-    -- ФАС-0004: выдано
-    (4, NULL,          'created',     1, NULL),
-    (4, 'created',     'issued',      1, 'Назначен ИП Миронов'),
+    (6, NULL,                  'issued',               2, 'Замечание от заказчика', TRUE),
+    (6, 'issued',              'in_progress',          5, NULL, FALSE),
 
-    -- ФАС-0005: только создано
-    (5, NULL,          'created',     1, 'Выявлено при плановом обходе'),
-
-    -- ФАС-0006: возврат на доработку
-    (6, NULL,          'created',     1, NULL),
-    (6, 'created',     'issued',      1, NULL),
-    (6, 'issued',      'in_progress', 2, NULL),
-    (6, 'in_progress', 'on_review',   2, 'Воронки переставлены'),
-    (6, 'on_review',   'rework',      1, 'Уклон недостаточен, требуется переделка'),
-
-    -- ФАС-0007: полный цикл до закрытия
-    (7, NULL,          'created',     1, NULL),
-    (7, 'created',     'issued',      1, NULL),
-    (7, 'issued',      'in_progress', 2, NULL),
-    (7, 'in_progress', 'on_review',   2, 'Профили очищены'),
-    (7, 'on_review',   'closed',      1, 'Принято');
+    (6, 'in_progress',         'rework',               3, 'Герметик нанесён некачественно', FALSE);

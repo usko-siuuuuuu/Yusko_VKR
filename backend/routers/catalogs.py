@@ -1,19 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from core.dependencies import require_admin
 from models.construction_object import ConstructionObject
-from models.contractor import Contractor
-from models.defect_cause import DefectCause
+from models.location import Location
 from models.work_type import WorkType
 from routers.auth import get_current_user
 from schemas.catalogs import (
     ConstructionObjectCreate, ConstructionObjectResponse, ConstructionObjectUpdate,
-    ContractorCreate, ContractorResponse, ContractorUpdate,
-    DefectCauseCreate, DefectCauseResponse, DefectCauseUpdate,
     WorkTypeCreate, WorkTypeResponse, WorkTypeUpdate,
+    LocationResponse,
 )
 
 router = APIRouter()
@@ -80,126 +78,6 @@ async def deactivate_work_type(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ПРИЧИНЫ ДЕФЕКТОВ
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/defect-causes", response_model=list[DefectCauseResponse])
-async def list_defect_causes(
-    active_only: bool = True,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
-):
-    q = select(DefectCause)
-    if active_only:
-        q = q.where(DefectCause.is_active == True)
-    result = await db.execute(q.order_by(DefectCause.name))
-    return result.scalars().all()
-
-
-@router.post("/defect-causes", response_model=DefectCauseResponse, status_code=201)
-async def create_defect_cause(
-    body: DefectCauseCreate,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-):
-    obj = DefectCause(name=body.name)
-    db.add(obj)
-    await db.commit()
-    await db.refresh(obj)
-    return obj
-
-
-@router.patch("/defect-causes/{id}", response_model=DefectCauseResponse)
-async def update_defect_cause(
-    id: int,
-    body: DefectCauseUpdate,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-):
-    obj = await db.get(DefectCause, id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Причина дефекта не найдена")
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(obj, field, value)
-    await db.commit()
-    await db.refresh(obj)
-    return obj
-
-
-@router.delete("/defect-causes/{id}", status_code=204)
-async def deactivate_defect_cause(
-    id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-):
-    obj = await db.get(DefectCause, id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Причина дефекта не найдена")
-    obj.is_active = False
-    await db.commit()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ПОДРЯДЧИКИ
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/contractors", response_model=list[ContractorResponse])
-async def list_contractors(
-    active_only: bool = True,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
-):
-    q = select(Contractor)
-    if active_only:
-        q = q.where(Contractor.is_active == True)
-    result = await db.execute(q.order_by(Contractor.name))
-    return result.scalars().all()
-
-
-@router.post("/contractors", response_model=ContractorResponse, status_code=201)
-async def create_contractor(
-    body: ContractorCreate,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-):
-    obj = Contractor(name=body.name, inn=body.inn)
-    db.add(obj)
-    await db.commit()
-    await db.refresh(obj)
-    return obj
-
-
-@router.patch("/contractors/{id}", response_model=ContractorResponse)
-async def update_contractor(
-    id: int,
-    body: ContractorUpdate,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-):
-    obj = await db.get(Contractor, id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Подрядчик не найден")
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(obj, field, value)
-    await db.commit()
-    await db.refresh(obj)
-    return obj
-
-
-@router.delete("/contractors/{id}", status_code=204)
-async def deactivate_contractor(
-    id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-):
-    obj = await db.get(Contractor, id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Подрядчик не найден")
-    obj.is_active = False
-    await db.commit()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # ОБЪЕКТЫ СТРОИТЕЛЬСТВА
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -258,12 +136,10 @@ async def deactivate_construction_object(
     obj.is_active = False
     await db.commit()
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ЛОКАЦИИ
 # ══════════════════════════════════════════════════════════════════════════════
-
-from models.location import Location
-from schemas.catalogs import LocationResponse
 
 @router.get("/locations", response_model=list[LocationResponse])
 async def list_locations(

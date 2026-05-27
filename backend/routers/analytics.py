@@ -1,12 +1,12 @@
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, cast, Date, func, select, text
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import and_, case, cast, Date, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from models.contractor import Contractor
 from models.issue import Issue
+from models.organization import Organization
 from models.user import User
 from models.work_type import WorkType
 from routers.auth import get_current_user
@@ -21,71 +21,68 @@ from schemas.analytics import (
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
-BLOCKED_ROLES = {"foreman"}
+
+def _base_filters(object_id: int, current_user: User) -> list:
+    filters = [Issue.object_id == object_id]
+    if current_user.role == "foreman":
+        filters.append(Issue.assignee_id == current_user.id)
+    if current_user.role == "client_rep":
+        filters.append(Issue.issue_type == "type2")
+    return filters
 
 
-def _check_access(current_user: User) -> None:
-    if current_user.role in BLOCKED_ROLES:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Аналитика недоступна для роли foreman",
-        )
+def _overdue_expr(today: datetime.date):
+    """Выражение для подсчёта просроченных: дедлайн прошёл И не закрыто."""
+    return case(
+        (and_(Issue.planned_finish_at != None, Issue.planned_finish_at < today, Issue.status != "closed"), 1),
+        else_=0,
+    )
 
-
-# ── Сводные показатели ────────────────────────────────────────────────────────
 
 @router.get("/summary", response_model=SummaryResponse)
 async def get_summary(
-    object_id: int = Query(..., description="ID объекта строительства"),
+    object_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_access(current_user)
+    filters = _base_filters(object_id, current_user)
+    today = datetime.date.today()
 
-    # Считаем количество по каждому статусу одним запросом
     result = await db.execute(
         select(
             func.count().label("total"),
-            func.sum(case((Issue.status == "created",     1), else_=0)).label("created"),
-            func.sum(case((Issue.status == "issued",      1), else_=0)).label("issued"),
-            func.sum(case((Issue.status == "in_progress", 1), else_=0)).label("in_progress"),
-            func.sum(case((Issue.status == "on_review",   1), else_=0)).label("on_review"),
-            func.sum(case((Issue.status == "rework",      1), else_=0)).label("rework"),
-            func.sum(case((Issue.status == "closed",      1), else_=0)).label("closed"),
-            func.sum(case((Issue.status == "rejected",    1), else_=0)).label("rejected"),
-            func.sum(case((Issue.is_overdue == True,      1), else_=0)).label("overdue"),
-        ).where(Issue.object_id == object_id)
+            func.sum(case((Issue.status == "issued",               1), else_=0)).label("issued"),
+            func.sum(case((Issue.status == "in_progress",          1), else_=0)).label("in_progress"),
+            func.sum(case((Issue.status == "on_review_supervisor", 1), else_=0)).label("on_review_supervisor"),
+            func.sum(case((Issue.status == "on_review_client",     1), else_=0)).label("on_review_client"),
+            func.sum(case((Issue.status == "rework",               1), else_=0)).label("rework"),
+            func.sum(case((Issue.status == "closed",               1), else_=0)).label("closed"),
+            func.sum(_overdue_expr(today)).label("overdue"),
+        ).where(*filters)
     )
     row = result.mappings().one()
 
-    # Среднее время закрытия в днях — только для closed замечаний
     avg_result = await db.execute(
         select(
             func.avg(
                 func.extract("epoch", Issue.updated_at - Issue.created_at) / 86400
             ).label("avg_days")
-        ).where(
-            Issue.object_id == object_id,
-            Issue.status == "closed",
-        )
+        ).where(*filters, Issue.status == "closed")
     )
     avg_days = avg_result.scalar()
 
     return SummaryResponse(
         total=row["total"] or 0,
-        created=row["created"] or 0,
         issued=row["issued"] or 0,
         in_progress=row["in_progress"] or 0,
-        on_review=row["on_review"] or 0,
+        on_review_supervisor=row["on_review_supervisor"] or 0,
+        on_review_client=row["on_review_client"] or 0,
         rework=row["rework"] or 0,
         closed=row["closed"] or 0,
-        rejected=row["rejected"] or 0,
         overdue=row["overdue"] or 0,
         avg_close_days=round(float(avg_days), 1) if avg_days else None,
     )
 
-
-# ── Распределение по статусам ─────────────────────────────────────────────────
 
 @router.get("/by-status", response_model=list[StatusDistributionItem])
 async def get_by_status(
@@ -93,21 +90,16 @@ async def get_by_status(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_access(current_user)
+    filters = _base_filters(object_id, current_user)
 
     result = await db.execute(
         select(Issue.status, func.count().label("count"))
-        .where(Issue.object_id == object_id)
+        .where(*filters)
         .group_by(Issue.status)
         .order_by(func.count().desc())
     )
-    return [
-        StatusDistributionItem(status=row.status, count=row.count)
-        for row in result
-    ]
+    return [StatusDistributionItem(status=row.status, count=row.count) for row in result]
 
-
-# ── Распределение по видам работ ──────────────────────────────────────────────
 
 @router.get("/by-work-type", response_model=list[WorkTypeDistributionItem])
 async def get_by_work_type(
@@ -115,17 +107,18 @@ async def get_by_work_type(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_access(current_user)
+    filters = _base_filters(object_id, current_user)
+    today = datetime.date.today()
 
     result = await db.execute(
         select(
             Issue.work_type_id,
             WorkType.name.label("work_type_name"),
             func.count().label("count"),
-            func.sum(case((Issue.is_overdue == True, 1), else_=0)).label("overdue_count"),
+            func.sum(_overdue_expr(today)).label("overdue_count"),
         )
         .outerjoin(WorkType, Issue.work_type_id == WorkType.id)
-        .where(Issue.object_id == object_id)
+        .where(*filters)
         .group_by(Issue.work_type_id, WorkType.name)
         .order_by(func.count().desc())
     )
@@ -140,41 +133,38 @@ async def get_by_work_type(
     ]
 
 
-# ── Рейтинг подрядчиков ───────────────────────────────────────────────────────
-
 @router.get("/by-contractor", response_model=list[ContractorRatingItem])
 async def get_by_contractor(
     object_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_access(current_user)
+    filters = _base_filters(object_id, current_user)
+    today = datetime.date.today()
 
     result = await db.execute(
         select(
-            Issue.contractor_id,
-            Contractor.name.label("contractor_name"),
+            Issue.subcontractor_org_id,
+            Organization.name.label("contractor_name"),
             func.count().label("total"),
             func.sum(case((Issue.status == "closed", 1), else_=0)).label("closed"),
-            func.sum(case((Issue.is_overdue == True,  1), else_=0)).label("overdue"),
+            func.sum(_overdue_expr(today)).label("overdue"),
             func.avg(
                 case(
-                    (
-                        Issue.status == "closed",
-                        func.extract("epoch", Issue.updated_at - Issue.created_at) / 86400,
-                    ),
+                    (Issue.status == "closed",
+                     func.extract("epoch", Issue.updated_at - Issue.created_at) / 86400),
                     else_=None,
                 )
             ).label("avg_close_days"),
         )
-        .outerjoin(Contractor, Issue.contractor_id == Contractor.id)
-        .where(Issue.object_id == object_id)
-        .group_by(Issue.contractor_id, Contractor.name)
+        .outerjoin(Organization, Issue.subcontractor_org_id == Organization.id)
+        .where(*filters)
+        .group_by(Issue.subcontractor_org_id, Organization.name)
         .order_by(func.count().desc())
     )
     return [
         ContractorRatingItem(
-            contractor_id=row.contractor_id,
+            contractor_id=row.subcontractor_org_id,
             contractor_name=row.contractor_name,
             total=row.total,
             closed=row.closed or 0,
@@ -185,16 +175,13 @@ async def get_by_contractor(
     ]
 
 
-# ── Просроченные замечания ────────────────────────────────────────────────────
-
 @router.get("/overdue", response_model=list[OverdueIssueItem])
 async def get_overdue(
     object_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_access(current_user)
-
+    filters = _base_filters(object_id, current_user)
     today = datetime.date.today()
 
     result = await db.execute(
@@ -204,23 +191,21 @@ async def get_overdue(
             Issue.description,
             Issue.status,
             Issue.planned_finish_at,
-            Contractor.name.label("contractor_name"),
+            Organization.name.label("contractor_name"),
         )
-        .outerjoin(Contractor, Issue.contractor_id == Contractor.id)
+        .outerjoin(Organization, Issue.subcontractor_org_id == Organization.id)
         .where(
-            Issue.object_id == object_id,
+            *filters,
+            Issue.planned_finish_at != None,
             Issue.planned_finish_at < today,
-            Issue.status.notin_(["closed", "rejected"]),
+            Issue.status != "closed",
         )
         .order_by(Issue.planned_finish_at)
     )
 
     items = []
     for row in result:
-        days_overdue = None
-        if row.planned_finish_at:
-            days_overdue = (today - row.planned_finish_at).days
-
+        days_overdue = (today - row.planned_finish_at).days if row.planned_finish_at else None
         items.append(OverdueIssueItem(
             id=row.id,
             number=row.number,
@@ -233,8 +218,6 @@ async def get_overdue(
     return items
 
 
-# ── Динамика по неделям ───────────────────────────────────────────────────────
-
 @router.get("/timeline", response_model=list[TimelineItem])
 async def get_timeline(
     object_id: int = Query(...),
@@ -242,30 +225,27 @@ async def get_timeline(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_access(current_user)
-
+    filters = _base_filters(object_id, current_user)
     since = datetime.date.today() - datetime.timedelta(weeks=weeks)
 
-    # Замечания созданные за период
     created_result = await db.execute(
         select(
             func.to_char(cast(Issue.created_at, Date), "IYYY-IW").label("week"),
             func.count().label("cnt"),
         )
-        .where(Issue.object_id == object_id, Issue.created_at >= since)
+        .where(*filters, Issue.created_at >= since)
         .group_by(text("1"))
         .order_by(text("1"))
     )
     created_map = {row.week: row.cnt for row in created_result}
 
-    # Замечания закрытые за период
     closed_result = await db.execute(
         select(
             func.to_char(cast(Issue.updated_at, Date), "IYYY-IW").label("week"),
             func.count().label("cnt"),
         )
         .where(
-            Issue.object_id == object_id,
+            *filters,
             Issue.status == "closed",
             Issue.updated_at >= since,
         )
@@ -274,13 +254,8 @@ async def get_timeline(
     )
     closed_map = {row.week: row.cnt for row in closed_result}
 
-    # Объединяем все недели
     all_weeks = sorted(set(created_map) | set(closed_map))
     return [
-        TimelineItem(
-            week=w,
-            created=created_map.get(w, 0),
-            closed=closed_map.get(w, 0),
-        )
+        TimelineItem(week=w, created=created_map.get(w, 0), closed=closed_map.get(w, 0))
         for w in all_weeks
     ]

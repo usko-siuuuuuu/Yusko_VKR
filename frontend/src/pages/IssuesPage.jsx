@@ -1,133 +1,159 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import Layout from '../components/Layout'
+import { useNavigate, useParams } from 'react-router-dom'
 import { getIssues } from '../api/issues'
-import { getContractors } from '../api/catalogs'
+import { getObjectOrganizations } from '../api/objects'
 import { useAuth } from '../context/AuthContext'
-import { STATUS_LABELS, STATUS_COLORS, PRIORITY_LABELS, PRIORITY_COLORS } from '../utils/constants'
+import { STATUS_LABELS, STATUS_COLORS, ISSUE_TYPE_LABELS } from '../utils/constants'
 import styles from './IssuesPage.module.css'
 
 export default function IssuesPage() {
+  const { id: objectId } = useParams()
   const { user } = useAuth()
   const navigate = useNavigate()
 
   const [issues, setIssues] = useState([])
-  const [contractors, setContractors] = useState([])
+  const [subcontractors, setSubcontractors] = useState([])
   const [loading, setLoading] = useState(true)
 
   const [filters, setFilters] = useState({
     status: '',
-    priority: '',
-    contractor_id: '',
+    issue_type: '',
+    subcontractor_org_id: '',
   })
 
   useEffect(() => {
-    getContractors().then(setContractors).catch(() => {})
-  }, [])
+    // Загружаем подрядные организации объекта для фильтра
+    getObjectOrganizations(objectId)
+      .then(orgs => setSubcontractors(orgs.filter(o => o.role === 'subcontractor')))
+      .catch(() => {})
+  }, [objectId])
 
   useEffect(() => {
     setLoading(true)
     const params = {}
     if (filters.status) params.status = filters.status
-    if (filters.priority) params.priority = filters.priority
-    if (filters.contractor_id) params.contractor_id = filters.contractor_id
+    if (filters.issue_type) params.issue_type = filters.issue_type
+    if (filters.subcontractor_org_id) params.subcontractor_org_id = filters.subcontractor_org_id
 
-    getIssues(params)
+    getIssues(objectId, params)
       .then(setIssues)
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [filters])
+  }, [objectId, filters])
 
   const handleFilterChange = (e) => {
-    setFilters((prev) => ({ ...prev, [e.target.name]: e.target.value }))
+    setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }))
   }
 
   const resetFilters = () => {
-    setFilters({ status: '', priority: '', contractor_id: '' })
+    setFilters({ status: '', issue_type: '', subcontractor_org_id: '' })
   }
 
+  const canCreate = ['supervisor', 'client_rep', 'admin'].includes(user?.role)
+
   return (
-    <Layout>
-      <div className={styles.page}>
-        <div className={styles.header}>
-          <h1 className={styles.title}>Замечания</h1>
-          {(user?.role === 'inspector' || user?.role === 'pto_engineer' || user?.role === 'admin') && (
-            <button className={styles.createBtn} onClick={() => navigate('/issues/new')}>
-              + Новое замечание
-            </button>
-          )}
-        </div>
-
-        <div className={styles.filters}>
-          <select name="status" value={filters.status} onChange={handleFilterChange} className={styles.select}>
-            <option value="">Все статусы</option>
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-
-          <select name="priority" value={filters.priority} onChange={handleFilterChange} className={styles.select}>
-            <option value="">Все приоритеты</option>
-            {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-
-          <select name="contractor_id" value={filters.contractor_id} onChange={handleFilterChange} className={styles.select}>
-            <option value="">Все подрядчики</option>
-            {contractors.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-
-          {(filters.status || filters.priority || filters.contractor_id) && (
-            <button className={styles.resetBtn} onClick={resetFilters}>Сбросить</button>
-          )}
-        </div>
-
-        {loading ? (
-          <div className={styles.loading}>Загрузка...</div>
-        ) : issues.length === 0 ? (
-          <div className={styles.empty}>Замечания не найдены</div>
-        ) : (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Номер</th>
-                  <th>Описание</th>
-                  <th>Статус</th>
-                  <th>Приоритет</th>
-                  <th>Подрядчик</th>
-                  <th>Срок</th>
-                </tr>
-              </thead>
-              <tbody>
-                {issues.map((issue) => (
-                  <tr key={issue.id} className={styles.row} onClick={() => navigate(`/issues/${issue.id}`)}>
-                    <td className={styles.number}>{issue.number}</td>
-                    <td className={styles.description}>{issue.description}</td>
-                    <td>
-                      <span className={styles.badge} style={{ background: STATUS_COLORS[issue.status] + '20', color: STATUS_COLORS[issue.status] }}>
-                        {STATUS_LABELS[issue.status]}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={styles.badge} style={{ background: PRIORITY_COLORS[issue.priority] + '20', color: PRIORITY_COLORS[issue.priority] }}>
-                        {PRIORITY_LABELS[issue.priority]}
-                      </span>
-                    </td>
-                    <td>{issue.contractor?.name ?? '—'}</td>
-                    <td className={issue.is_overdue ? styles.overdue : ''}>
-                      {issue.planned_finish_at ? new Date(issue.planned_finish_at).toLocaleDateString('ru-RU') : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+    <div className={styles.page}>
+      <div className={styles.header}>
+        <h1 className={styles.title}>Замечания</h1>
+        {canCreate && (
+          <button
+            className={styles.createBtn}
+            onClick={() => navigate(`/objects/${objectId}/issues/new`)}
+          >
+            + Новое замечание
+          </button>
         )}
       </div>
-    </Layout>
+
+      <div className={styles.filters}>
+        <select name="status" value={filters.status} onChange={handleFilterChange} className={styles.select}>
+          <option value="">Все статусы</option>
+          {Object.entries(STATUS_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+
+        {user?.role !== 'client_rep' && (
+          <select name="issue_type" value={filters.issue_type} onChange={handleFilterChange} className={styles.select}>
+            <option value="">Все типы</option>
+            <option value="type1">Тип 1 — Технадзор → Прораб</option>
+            <option value="type2">Тип 2 — Заказчик → Генподрядчик</option>
+          </select>
+        )}
+
+        {user?.role !== 'foreman' && user?.role !== 'client_rep' && (
+          <select name="subcontractor_org_id" value={filters.subcontractor_org_id} onChange={handleFilterChange} className={styles.select}>
+            <option value="">Все подрядчики</option>
+            {subcontractors.map(o => (
+              <option key={o.organization_id} value={o.organization_id}>{o.organization_name}</option>
+            ))}
+          </select>
+        )}
+
+        {(filters.status || filters.issue_type || filters.subcontractor_org_id) && (
+          <button className={styles.resetBtn} onClick={resetFilters}>Сбросить</button>
+        )}
+      </div>
+
+      {loading ? (
+        <div className={styles.loading}>Загрузка...</div>
+      ) : issues.length === 0 ? (
+        <div className={styles.empty}>Замечания не найдены</div>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Номер</th>
+                <th>Тип</th>
+                <th>Описание</th>
+                <th>Статус</th>
+                <th>Подрядчик</th>
+                <th>Срок</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issues.map(issue => (
+                <tr
+                  key={issue.id}
+                  className={styles.row}
+                  onClick={() => navigate(`/objects/${objectId}/issues/${issue.id}`)}
+                >
+                  <td className={styles.number}>{issue.number}</td>
+                  <td>
+                    <span className={styles.typeBadge}>
+                      {issue.issue_type === 'type1' ? 'Тип 1' : 'Тип 2'}
+                    </span>
+                  </td>
+                  <td className={styles.description}>{issue.description}</td>
+                  <td>
+                    <div>
+                      <span
+                        className={styles.badge}
+                        style={{
+                          background: STATUS_COLORS[issue.status] + '20',
+                          color: STATUS_COLORS[issue.status],
+                        }}
+                      >
+                        {STATUS_LABELS[issue.status]}
+                      </span>
+                      {issue.is_overdue && (
+                        <span className={styles.overdueBadge}>Просрочено</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>{issue.subcontractor_name ?? '—'}</td>
+                  <td className={issue.is_overdue ? styles.overdueDate : ''}>
+                    {issue.planned_finish_at
+                      ? new Date(issue.planned_finish_at).toLocaleDateString('ru-RU')
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
